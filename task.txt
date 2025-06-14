@@ -1,0 +1,75 @@
+DELIMITER $$
+
+CREATE PROCEDURE AllocateSubjects()
+BEGIN
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE v_StudentId VARCHAR(20);
+    DECLARE cur_students CURSOR FOR
+        SELECT StudentId
+        FROM StudentDetails
+        ORDER BY GPA DESC;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+    OPEN cur_students;
+
+    read_loop: LOOP
+        FETCH cur_students INTO v_StudentId;
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
+
+        DECLARE v_SubjectId VARCHAR(20);
+        DECLARE v_RemainingSeats INT;
+        DECLARE v_Allotted INT DEFAULT 0;
+        DECLARE cur_preferences CURSOR FOR
+            SELECT sp.SubjectId
+            FROM StudentPreference sp
+            WHERE sp.StudentId = v_StudentId
+            ORDER BY sp.Preference ASC;
+
+        DECLARE done2 INT DEFAULT FALSE;
+        DECLARE CONTINUE HANDLER FOR NOT FOUND SET done2 = TRUE;
+
+        OPEN cur_preferences;
+
+        read_prefs: LOOP
+            FETCH cur_preferences INTO v_SubjectId;
+            IF done2 THEN
+                LEAVE read_prefs;
+            END IF;
+
+            -- Get remaining seats
+            SELECT RemainingSeats INTO v_RemainingSeats
+            FROM SubjectDetails
+            WHERE SubjectId = v_SubjectId;
+
+            IF v_RemainingSeats > 0 THEN
+                -- Allot student to this subject
+                INSERT INTO Allotments (SubjectId, StudentId)
+                VALUES (v_SubjectId, v_StudentId);
+
+                -- Reduce the seat count
+                UPDATE SubjectDetails
+                SET RemainingSeats = RemainingSeats - 1
+                WHERE SubjectId = v_SubjectId;
+
+                SET v_Allotted = 1;
+                LEAVE read_prefs;
+            END IF;
+
+        END LOOP read_prefs;
+
+        CLOSE cur_preferences;
+
+        IF v_Allotted = 0 THEN
+            INSERT INTO UnallottedStudents (StudentId)
+            VALUES (v_StudentId);
+        END IF;
+
+    END LOOP read_loop;
+
+    CLOSE cur_students;
+END $$
+
+DELIMITER ;
